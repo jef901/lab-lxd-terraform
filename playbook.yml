@@ -1,0 +1,141 @@
+---
+# ==========================================
+# CAPA 1: CONFIGURACIÓN DE LA BASE DE DATOS
+# ==========================================
+- name: Configurar Servidor de Base de Datos Central
+  hosts: base_datos
+  gather_facts: false
+  tasks:
+    - name: Actualizar repositorios e instalar MariaDB y dependencias de Python
+      apt:
+        name:
+          - mariadb-server
+          - python3-pymysql # <-- FIX 1: Instalamos la librería necesaria para Ansible
+        update_cache: yes
+        state: present
+
+    - name: Asegurar que MariaDB escuche en toda la red interna y desactivar DNS inverso
+      blockinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        block: |
+          [mysqld]
+          bind-address = 0.0.0.0
+          skip-name-resolve
+
+    - name: Reiniciar y activar el servicio MariaDB
+      systemd:
+        name: mariadb
+        state: restarted
+        enabled: yes
+
+    - name: Crear base de datos de práctica
+      mysql_db:
+        name: lab_devops
+        state: present
+        login_user: root
+        login_unix_socket: /run/mysqld/mysqld.sock
+
+    - name: Crear usuario remoto con acceso total
+      mysql_user:
+        name: web_user
+        password: PasswordSegura123
+        host: '%'
+        priv: 'lab_devops.*:ALL,GRANT'
+        state: present
+        login_user: root
+        login_unix_socket: /run/mysqld/mysqld.sock
+
+# ==========================================
+# CAPA 2: CONFIGURACIÓN DE LOS SERVIDORES WEB
+# ==========================================
+- name: Configurar Servidores Web en Clúster
+  hosts: servidores_web
+  gather_facts: false
+  tasks:
+    - name: Instalar Nginx, PHP y Git
+      apt:
+        name:
+          - nginx
+          - php-fpm
+          - php-mysql
+          - git
+        update_cache: yes
+        state: present
+
+    - name: Configurar Nginx para procesar PHP de forma limpia
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+              listen 0.0.0.0:80 default_server;
+              root /var/www/html;
+              index index.php index.html;
+              server_name _;
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+              location ~ \.php$ {
+                  include snippets/fastcgi-php.conf;
+                  fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+              }
+          }
+
+    - name: Limpiar la carpeta web por defecto
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/www/html/index.html
+        - /var/www/html/index.nginx-debian.html
+
+    - name: Copiar la aplicación PHP directo desde el anfitrión de WSL
+      copy:
+        src: ./index.php       # <-- Toma el archivo de tu máquina
+        dest: /var/www/html/index.php # <-- Lo inyecta en los servidores web
+        mode: '0644'
+
+    - name: Reiniciar servicios de Web y PHP
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      loop:
+        - nginx
+        - php8.3-fpm
+
+# ==========================================
+# CAPA 3: CONFIGURACIÓN DEL BALANCEADOR DE CARGA
+# ==========================================
+- name: Configurar el Balanceador de Carga Inteligente
+  hosts: balanceador
+  gather_facts: false
+  tasks:
+    - name: Instalar Nginx en el nodo de balanceo
+      apt:
+        name: nginx
+        state: present
+
+    - name: Inyectar la estrategia de balanceo de carga (Round Robin)
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          upstream mis_servidores_web {
+              server 10.0.20.21:80;
+              server 10.0.20.22:80;
+          }
+          server {
+              listen 80 default_server;
+              location / {
+                  proxy_pass http://mis_servidores_web;
+                  proxy_redirect off;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+
+    - name: Reiniciar Nginx en el Balanceador
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes
