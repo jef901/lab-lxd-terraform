@@ -11,7 +11,7 @@ provider "lxd" {
   accept_remote_certificate = true
 }
 
-# 1. Red privada
+# 1. Red privada de prácticas
 resource "lxd_network" "red_practica" {
   name = "red-tf"
   config = {
@@ -22,35 +22,33 @@ resource "lxd_network" "red_practica" {
   }
 }
 
-# Perfil base para habilitar SSH y Cloud-Init limpio en todos los nodos
-resource "lxd_profile" "perfil_ansible" {
-  name = "perfil-ansible"
+# Perfil especial para habilitar Docker Anidado
+resource "lxd_profile" "perfil_docker" {
+  name = "perfil-docker"
 
   config = {
-    # Instalamos SSH al nacer para que Ansible pueda conectarse
+    "security.nesting"    = "true"  # Permite anidación
+    "security.privileged" = "true"  # Da privilegios para el motor de Docker
+    
+    # Script automático para instalar Docker al nacer
     "user.user-data" = <<EOF
 #cloud-config
 package_update: true
 packages:
-  - openssh-server
+  - docker.io
 runcmd:
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf
-  - systemctl enable --now ssh
-  # Permitir acceso directo como root para facilitar la práctica local
-  - sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
-  - sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
-  - echo "root:PasswordSegura123" | chpasswd
-  - systemctl restart ssh
+  - systemctl enable --now docker
 EOF
   }
 }
 
-# 2. Servidor de Base de Datos Vacío (10.0.20.10)
+# 2. Nodo de Base de Datos preparado para Docker (10.0.20.10)
 resource "lxd_instance" "srv_db" {
   name      = "srv-db-tf"
   image     = "ubuntu:24.04"
   type      = "container"
-  profiles  = ["default", lxd_profile.perfil_ansible.name]
+  profiles  = ["default", lxd_profile.perfil_docker.name]
 
   device {
     name    = "eth0"
@@ -62,13 +60,13 @@ resource "lxd_instance" "srv_db" {
   }
 }
 
-# 3. Dos Servidores Web Vacíos (10.0.20.21 y 10.0.20.22)
+# 3. Dos Nodos Web preparados para Docker (10.0.20.21 y 10.0.20.22)
 resource "lxd_instance" "srv_web" {
   count     = 2
   name      = "srv-web-tf-${count.index + 1}"
   image     = "ubuntu:24.04"
   type      = "container"
-  profiles  = ["default", lxd_profile.perfil_ansible.name]
+  profiles  = ["default", lxd_profile.perfil_docker.name]
 
   device {
     name    = "eth0"
@@ -80,12 +78,12 @@ resource "lxd_instance" "srv_web" {
   }
 }
 
-# 4. Balanceador de Carga Vacío (10.0.20.30)
+# 4. Nodo Balanceador preparado para Docker (10.0.20.30)
 resource "lxd_instance" "srv_lb" {
   name      = "srv-lb-tf"
   image     = "ubuntu:24.04"
   type      = "container"
-  profiles  = ["default", lxd_profile.perfil_ansible.name]
+  profiles  = ["default", lxd_profile.perfil_docker.name]
 
   device {
     name    = "eth0"
