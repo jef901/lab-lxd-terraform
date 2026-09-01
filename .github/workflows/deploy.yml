@@ -1,0 +1,35 @@
+name: Pipeline CD - Despliegue Automatizado Remoto
+
+on:
+  push:
+    branches:
+      - main  # Cambia esto a 'master' si tu rama principal local se llama 'master'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Ejecutar despliegue remoto vía SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            echo "🚀 Conectado al Balanceador local desde la nube de GitHub Actions!"
+            
+            # Enviar el archivo index.php a los nodos web internos de la red virtual
+            lxc file push ./index.php srv-web-tf-1/root/index.php
+            lxc file push ./index.php srv-web-tf-2/root/index.php
+            
+            # Ajustar permisos y reiniciar microservicios en caliente
+            lxc exec srv-web-tf-1 -- chmod 644 /root/index.php
+            lxc exec srv-web-tf-2 -- chmod 644 /root/index.php
+            lxc exec srv-web-tf-1 -- docker restart mi-servidor-web-1
+            lxc exec srv-web-tf-2 -- docker restart mi-servidor-web-2
+            
+            echo "✨ ¡Despliegue remoto completado con éxito por el pipeline!"
