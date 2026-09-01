@@ -3,7 +3,7 @@ name: Pipeline CD - Despliegue Automatizado Remoto
 on:
   push:
     branches:
-      - master  # <-- Asegúrate de que coincida con tu rama (master o main)
+      - main  # <-- Asegúrate de que coincida con tu rama (master o main)
 
 jobs:
   deploy:
