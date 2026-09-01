@@ -3,7 +3,7 @@ name: Pipeline CD - Despliegue Automatizado Remoto
 on:
   push:
     branches:
-      - main  # <-- Asegúrate de que coincida con tu rama (master o main)
+      - main
 
 jobs:
   deploy:
@@ -12,17 +12,7 @@ jobs:
       - name: Descargar el código del repositorio
         uses: actions/checkout@v4
 
-      - name: Transferir index.php al Balanceador local vía SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: root
-          key: ${{ secrets.SSH_KEY }}
-          port: 22  # <-- Forzamos el puerto SSH nativo de localhost.run directamente
-          source: "./index.php"
-          target: "/root/"
-
-      - name: Ejecutar comandos de ordenamiento dentro de tu WSL
+      - name: Inyectar Código y Actualizar Clúster vía SSH Nativo
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -30,16 +20,35 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
-            echo "🚀 Moviendo el código desde el Balanceador hacia los Nodos Web..."
+            echo "🚀 Conectado al Balanceador desde GitHub Actions!"
             
-            # Ahora que el archivo llegó a srv-lb-tf, lo repartimos internamente en tu red virtual
+            # 1. Crear el archivo index.php con formato limpio directamente dentro del Balanceador
+            cat << 'EOF' > /root/index.php
+            <?php
+            error_reporting(E_ALL);
+            ini_set('display_errors', 1);
+
+            echo "<h1>🚀 ¡Despliegue Global Exitoso desde la Nube de GitHub Actions hacia mi WSL! 🚀</h1>";
+
+            $mysqli = new mysqli("10.0.20.10", "web_user", "PasswordSegura123", "lab_devops");
+
+            if ($mysqli->connect_error) {
+                echo "<p>Error de conexión a la DB: " . $mysqli->connect_error . "</p>";
+            } else {
+                echo "<p>Conexión a la DB centralizada: <b>EXITOSA</b></p>";
+                echo "<p>Hora actual del clúster inmutable: " . date("H:i:s") . "</p>";
+            }
+            ?>
+            EOF
+            
+            echo "📦 Repartiendo el nuevo código hacia los Nodos Web de LXD..."
             lxc file push /root/index.php srv-web-tf-1/root/index.php
             lxc file push /root/index.php srv-web-tf-2/root/index.php
             
-            # Ajustar permisos y reiniciar microservicios en caliente
+            echo "🔧 Ajustando permisos y refrescando contenedores Docker..."
             lxc exec srv-web-tf-1 -- chmod 644 /root/index.php
             lxc exec srv-web-tf-2 -- chmod 644 /root/index.php
             lxc exec srv-web-tf-1 -- docker restart mi-servidor-web-1
             lxc exec srv-web-tf-2 -- docker restart mi-servidor-web-2
             
-            echo "✨ ¡Despliegue global completado con éxito!"
+            echo "✨ ¡Despliegue global completado con éxito por el pipeline!"
