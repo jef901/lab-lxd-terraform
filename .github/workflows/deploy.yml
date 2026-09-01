@@ -12,17 +12,24 @@ jobs:
       - name: Descargar el código del repositorio
         uses: actions/checkout@v4
 
-      - name: Inyectar Código y Actualizar Clúster vía SSH Nativo
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: root
-          key: ${{ secrets.SSH_KEY }}
-          port: 22
-          script: |
-            echo "🚀 Conectado al Balanceador desde GitHub Actions!"
+      - name: Despliegue remoto usando SSH Nativo de Linux
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          # 1. Configurar la llave privada en el entorno temporal de GitHub
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          
+          # 2. Desactivar la verificación estricta de hosts para evitar bloqueos interactivos
+          echo -e "Host *\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
+
+          # 3. Conectarse y ejecutar el despliegue de forma nativa por el puerto 22
+          ssh root@$SSH_HOST -p 22 << 'REMOTE_EOF'
+            echo "🚀 Conectado con éxito al Balanceador mediante SSH nativo de Linux!"
             
-            # 1. Crear el archivo index.php con formato limpio directamente dentro del Balanceador
+            # Crear el archivo index.php dentro del Balanceador
             cat << 'EOF' > /root/index.php
             <?php
             error_reporting(E_ALL);
@@ -52,3 +59,4 @@ jobs:
             lxc exec srv-web-tf-2 -- docker restart mi-servidor-web-2
             
             echo "✨ ¡Despliegue global completado con éxito por el pipeline!"
+          REMOTE_EOF
